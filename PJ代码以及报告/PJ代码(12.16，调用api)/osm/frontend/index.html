@@ -1,0 +1,209 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Enhanced Map Interface</title>
+    <style>
+        body, html {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        .controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 12px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+        .mode-switch {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .mode-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s ease;
+        }
+        .mode-btn.active {
+            background: #4CAF50;
+            color: white;
+        }
+        .mode-btn:not(.active) {
+            background: #f0f0f0;
+            color: #666;
+        }
+        .mode-btn:hover:not(.active) {
+            background: #e0e0e0;
+        }
+        .info-display {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 1000;
+            max-width: 300px;
+        }
+        .legend {
+            margin-top: 12px;
+            font-size: 13px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .legend-color {
+            width: 24px;
+            height: 4px;
+            margin-right: 10px;
+            border-radius: 2px;
+        }
+        #map-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+        }
+        .coordinates-label {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1001;
+        }
+    </style>
+    <!-- Load Baidu Map SDK -->
+    <script src="https://api.map.baidu.com/api?v=3.0&ak=AtogmfxNZD6B9yQJWbn4MNO9c0kBo804"></script>
+</head>
+<body>
+    <div id="map-container"></div>
+
+    <div class="controls">
+        <div class="mode-switch">
+            <button class="mode-btn active" id="pedestrianMode">Walking</button>
+            <button class="mode-btn" id="vehicleMode">Driving</button>
+        </div>
+        <div>Click to set start and end points</div>
+    </div>
+
+    <div class="info-display">
+        <div id="coordinatesDisplay">Selected Points: None</div>
+        <div id="timingDisplay" style="margin-top: 6px; color: #666;">Path calculation: -- ms</div>
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: blue;"></div>
+                <span>Network Points</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: red;"></div>
+                <span>Selected Points</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #4CAF50;"></div>
+                <span>Planned Route</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Baidu Map
+        var map = new BMap.Map("map-container");
+        map.centerAndZoom(new BMap.Point(121.503584, 31.296426), 15); // Center the map on Shanghai Fudan
+
+        var isPedestrianMode = true;
+        var selectedPoints = [];
+        var hoverLabel = null;
+
+        // Create marker for selected points
+        function createMarker(point, color) {
+            var marker = new BMap.Marker(point);
+            marker.setIcon(new BMap.Icon('http://app.baidu.com/map/jsdemo/img/marker_red.png', new BMap.Size(20, 25)));
+            map.addOverlay(marker);
+            return marker;
+        }
+
+        // Handle mousemove for displaying coordinates
+        map.addEventListener('mousemove', function(e) {
+            var mouseX = e.clientX;
+            var mouseY = e.clientY;
+
+            if (hoverLabel) {
+                hoverLabel.style.left = (mouseX + 10) + "px";
+                hoverLabel.style.top = (mouseY + 10) + "px";
+                hoverLabel.textContent = `Lat: ${e.point.lat}, Lng: ${e.point.lng}`;
+            }
+        });
+
+        // Mouse click to select points
+        map.addEventListener("click", function(e) {
+            if (selectedPoints.length >= 2) {
+                selectedPoints = []; // Clear previous points if 2 points are already selected
+                map.clearOverlays();
+            }
+
+            selectedPoints.push(e.point);
+            createMarker(e.point, 'red');
+            document.getElementById("coordinatesDisplay").textContent = `Selected Points: (${e.point.lat}, ${e.point.lng})`;
+
+            if (selectedPoints.length === 2) {
+                calculateRoute(selectedPoints);
+            }
+        });
+
+        // Calculate route between selected points
+        function calculateRoute(points) {
+            var start = points[0];
+            var end = points[1];
+
+            var driving = new BMap.DrivingRoute(map, {
+                renderOptions: { map: map, autoViewport: true },
+                onSearchComplete: function() {
+                    var endTime = new Date().getTime();
+                    var duration = endTime - startTime;
+                    document.getElementById("timingDisplay").textContent = `Path calculation: ${duration} ms`;
+                }
+            });
+
+            var walking = new BMap.WalkingRoute(map, {
+                renderOptions: { map: map, autoViewport: true },
+                onSearchComplete: function() {
+                    var endTime = new Date().getTime();
+                    var duration = endTime - startTime;
+                    document.getElementById("timingDisplay").textContent = `Path calculation: ${duration} ms`;
+                }
+            });
+
+            var startTime = new Date().getTime(); // Start time before calling the search function
+            var routeType = isPedestrianMode ? walking : driving;
+
+            routeType.search(start, end);
+        }
+
+        // Mode switch event
+        document.getElementById("pedestrianMode").addEventListener("click", function() {
+            isPedestrianMode = true;
+            this.classList.add("active");
+            document.getElementById("vehicleMode").classList.remove("active");
+        });
+
+        document.getElementById("vehicleMode").addEventListener("click", function() {
+            isPedestrianMode = false;
+            this.classList.add("active");
+            document.getElementById("pedestrianMode").classList.remove("active");
+        });
+    </script>
+</body>
+</html>

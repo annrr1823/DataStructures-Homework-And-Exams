@@ -1,0 +1,440 @@
+<!doctype html>
+<html>
+<head>
+    <style>
+        .controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 12px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        .mode-switch {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .mode-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .mode-btn.active {
+            background: #4CAF50;
+            color: white;
+        }
+        .mode-btn:not(.active) {
+            background: #f0f0f0;
+            color: #666;
+        }
+        .info-display {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 12px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            font-size: 14px;
+        }
+        .legend {
+            margin-top: 10px;
+            font-size: 12px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 3px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="test" width="1600" height="900" style="border: 1px solid black;"></canvas>
+
+    <div class="controls">
+        <div class="mode-switch">
+            <button class="mode-btn active" id="pedestrianMode">walking</button>
+            <button class="mode-btn" id="vehicleMode">driving</button>
+        </div>
+        <div>click_please</div>
+    </div>
+
+    <div class="info-display">
+        <div id="coordinatesDisplay">Selected Nodes: None</div>
+        <div id="timingDisplay" style="margin-top: 4px; color: #666;">Path computation time: -- ms</div>
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: blue;"></div>
+                <span>points</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: red;"></div>
+                <span>choosen</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #4CAF50;"></div>
+                <span>plan_route</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var nodes = [];
+        var selectedNodes = [];
+        var isPedestrianMode = true;
+
+        function switchMode(mode) {
+            isPedestrianMode = mode === 'pedestrian';
+            document.getElementById('pedestrianMode').classList.toggle('active', isPedestrianMode);
+            document.getElementById('vehicleMode').classList.toggle('active', !isPedestrianMode);
+            
+            // 清除已选择的点和路线
+            resetSelection();
+        }
+
+        function resetSelection() {
+            selectedNodes = [];
+            updateCoordinatesDisplay();
+            redrawMap();
+        }
+
+        function redrawMap() {
+            let test = document.getElementById("test");
+            let ctx = test.getContext("2d");
+            ctx.clearRect(0, 0, test.width, test.height);
+
+            // 重新绘制建筑物
+            let buildingsJson = Module.getBuildings();
+            let buildingsData = JSON.parse(buildingsJson);
+            drawBuildings(buildingsData);
+
+            // 重新绘制路网
+            let waysJson = Module.getWays();
+            let waysData = JSON.parse(waysJson);
+            for (let data in waysData) {
+                draw(waysData[data]);
+            }
+        }
+
+        var scale = function (point) {
+            return [Math.round((point.lon - 121.438) * 15000), Math.round((point.lat - 31.366) * 14500)];
+        }
+
+        var nodesInWays = new Set(); // 记录在道路中出现的节点
+
+        var draw = function (data) {
+            let points = data.nodes;
+            let tags = data.tags;
+
+            let test = document.getElementById("test");
+            let way = test.getContext("2d");
+            way.lineWidth = 0.5;
+            way.strokeStyle = "#000000";
+            way.beginPath();
+
+            // 记录道路中的节点
+            for (let i = 0; i < points.length; i++) {
+                nodesInWays.add(points[i].id);
+            }
+
+            for (let i = 0; i < points.length; i++) {
+                let point = scale(points[i]);
+                
+                // 只添加在道路中的节点
+                let nodeExists = nodes.some(node => node.id === points[i].id);
+                if (!nodeExists) {
+                    nodes.push({x: point[0], y: point[1], id: points[i].id});
+                }
+                
+                way.moveTo(point[0], point[1]);
+
+                way.beginPath();
+                way.arc(point[0], point[1], 3, 0, 2 * Math.PI);
+                way.fillStyle = "blue";
+                way.fill();
+                way.closePath();
+            }
+
+            way.beginPath();
+            let firstPoint = scale(points[0]);
+            way.moveTo(firstPoint[0], firstPoint[1]);
+            for (let i = 1; i < points.length; i++) {
+                let point = scale(points[i]);
+                way.lineTo(point[0], point[1]);
+            }
+            way.closePath();
+            way.stroke();
+        }
+
+        
+
+        var drawSelectedPoint = function (x, y) {
+            let test = document.getElementById("test");
+            let ctx = test.getContext("2d");
+
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, 2 * Math.PI);
+            ctx.fillStyle = "red";
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        var drawBuildings = function(data) {
+            let test = document.getElementById("test");
+            let ctx = test.getContext("2d");
+
+            ctx.lineWidth = 0.5;
+            ctx.strokeStyle = "rgba(255, 255, 0, 0.3)";
+            ctx.fillStyle = "rgba(255, 255, 0, 0.1)";
+
+            for (let buildingId in data) {
+                let building = data[buildingId];
+                let points = building.nodes;
+
+                if (points.length > 1) {
+                    ctx.beginPath();
+                    let firstPoint = scale(points[0]);
+                    ctx.moveTo(firstPoint[0], firstPoint[1]);
+
+                    for (let i = 1; i < points.length; i++) {
+                        let point = scale(points[i]);
+                        ctx.lineTo(point[0], point[1]);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                }
+            }
+        };
+
+        var startId, endId; // 在外部声明这两个变量，以便在函数中使用
+
+        var drawShortestPath = function (pathData) {
+            let infoDisplay = document.getElementById("coordinatesDisplay");
+            
+            console.log(`Drawing path. Start: ${startId}, End: ${endId}`);
+            console.log(`Path data received: `, pathData);
+
+            if (pathData && pathData.length > 0) {
+                // 原有的路径绘制逻辑
+                infoDisplay.innerHTML = `Start Node: ${startId}<br>End Node: ${endId}`;
+
+                let test = document.getElementById("test");
+                let ctx = test.getContext("2d");
+
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = "#4CAF50";
+                ctx.beginPath();
+
+                let startPoint = scale(pathData[0]);
+                ctx.moveTo(startPoint[0], startPoint[1]);
+
+                for (let i = 1; i < pathData.length; i++) {
+                    let point = scale(pathData[i]);
+                    ctx.lineTo(point[0], point[1]);
+                }
+
+                ctx.stroke();
+            } else {
+                // 明确显示没有找到路径
+                infoDisplay.innerHTML = `No path found between nodes:<br>Start: ${startId}<br>End: ${endId}<br>Mode: ${isPedestrianMode ? 'Walking' : 'Driving'}`;
+                
+                // 弹出提示
+                alert(isPedestrianMode ? "无可行的步行路径" : "无可行的驾驶路径");
+                
+                // 重置选择
+                resetSelection();
+            }
+        };
+
+
+
+        var updateCoordinatesDisplay = function () {
+            let display = document.getElementById("coordinatesDisplay");
+            if (selectedNodes.length === 0) {
+                display.innerHTML = `Selected Nodes: None`;
+            } else if (selectedNodes.length === 1) {
+                display.innerHTML = `Selected Nodes: (${selectedNodes[0].x}, ${selectedNodes[0].y})`;
+            } else {
+                display.innerHTML = `Selected Nodes: (${selectedNodes[0].x}, ${selectedNodes[0].y}) and (${selectedNodes[1].x}, ${selectedNodes[1].y})`;
+            }
+        }
+
+        var updateTimingDisplay = function (time) {
+            let timingDisplay = document.getElementById("timingDisplay");
+            timingDisplay.innerHTML = `Path computation time: ${time.toFixed(2)} ms`;
+        }
+
+        var isPointNear = function (clickX, clickY, nodeX, nodeY, radius = 5) {
+            let dist = Math.sqrt((clickX - nodeX) ** 2 + (clickY - nodeY) ** 2);
+            return dist <= radius;
+        }
+
+        var findNearestNodeInNetwork = function(clickX, clickY) {
+            let minDistance = Infinity;
+            let nearestNode = null;
+
+            for (let node of nodes) {
+                if (nodesInWays.has(node.id)) {
+                    let distance = Math.sqrt((clickX - node.x) ** 2 + (clickY - node.y) ** 2);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        nearestNode = node;
+                    }
+                }
+            }
+
+            return { node: nearestNode, distance: minDistance };
+        }
+
+        var Module = {
+            onRuntimeInitialized: function () {
+                Module.load();
+
+                // 重置 nodes 数组，但不要完全清空它
+                nodes = [];
+                nodesInWays = new Set();
+
+                let buildingsJson = Module.getBuildings();
+                let buildingsData = JSON.parse(buildingsJson);
+                drawBuildings(buildingsData);
+
+                let waysJson = Module.getWays();
+                let waysData = JSON.parse(waysJson);
+                for (let data in waysData) {
+                    draw(waysData[data]);
+                }
+            }
+        };
+
+        
+
+        // 修改点击事件处理程序中的相关部分
+        document.getElementById("test").addEventListener("click", function (event) {
+            let rect = this.getBoundingClientRect();
+            let x = event.clientX - rect.left;
+            let y = event.clientY - rect.top;
+
+            // 添加视觉反馈
+            let ctx = this.getContext("2d");
+            
+            // 绘制临时点击位置的标记
+            ctx.beginPath();
+            ctx.arc(x, y, 6, 0, 2 * Math.PI);
+            ctx.fillStyle = "rgba(255, 0, 0, 0.5)";
+            ctx.fill();
+            ctx.closePath();
+
+            // 查找最近的路网节点
+            let { node: nearestNode, distance } = findNearestNodeInNetwork(x, y);
+
+            if (nearestNode) {
+                // 如果距离太远，显示提示
+                if (distance > 20) {
+                    ctx.font = "12px Arial";
+                    ctx.fillStyle = "red";
+                    ctx.fillText("Nearest network point", nearestNode.x + 10, nearestNode.y);
+                }
+
+                if (selectedNodes.length === 2) {
+                    selectedNodes = [];
+                    redrawMap();
+                }
+
+                selectedNodes.push({
+                    x: nearestNode.x, 
+                    y: nearestNode.y, 
+                    id: nearestNode.id
+                });
+
+                // 高亮显示吸附的节点
+                ctx.beginPath();
+                ctx.arc(nearestNode.x, nearestNode.y, 8, 0, 2 * Math.PI);
+                ctx.fillStyle = "rgba(0, 255, 0, 0.7)";
+                ctx.fill();
+                ctx.strokeStyle = "green";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.closePath();
+
+                // 绘制连接线，显示"吸附"效果
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(nearestNode.x, nearestNode.y);
+                ctx.strokeStyle = "rgba(0, 255, 0, 0.5)";
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]); // 虚线
+                ctx.stroke();
+                ctx.setLineDash([]); // 重置虚线
+                ctx.closePath();
+
+                updateCoordinatesDisplay();
+
+                if (selectedNodes.length === 2) {
+                    startId = selectedNodes[0].id;
+                    endId = selectedNodes[1].id;
+                    
+                    console.log(`Searching path from ${startId} to ${endId}`);
+                    console.log(`Is in road network: 
+                        Start: ${nodesInWays.has(startId)}, 
+                        End: ${nodesInWays.has(endId)}`);
+                    
+                    const startTime = performance.now();
+                    
+                    let pathJson = Module.getShortestPath(startId, endId, isPedestrianMode);
+                    
+                    console.log('Raw pathJson:', pathJson); // 额外的调试日志
+                    
+                    // 如果pathJson为null，直接在前端报错
+                    if (pathJson === null) {
+                        alert("路径查找失败：内部错误（pathJson为null）");
+                        console.error(`Path finding failed for start: ${startId}, end: ${endId}, mode: ${isPedestrianMode ? 'pedestrian' : 'vehicle'}`);
+                        resetSelection();
+                        return;
+                    }
+                    
+                    // 添加健壮性检查
+                    let pathData = [];
+                    try {
+                        if (pathJson && pathJson.trim() !== '') {
+                            pathData = JSON.parse(pathJson);
+                        }
+                    } catch (error) {
+                        console.error('JSON parsing error:', error);
+                        console.error('Problematic JSON:', pathJson);
+                        alert("路径解析错误：无法处理返回的路径数据");
+                        resetSelection();
+                        return;
+                    }
+                    
+                    const endTime = performance.now();
+                    const timeElapsed = endTime - startTime;
+                    
+                    updateTimingDisplay(timeElapsed);
+                    
+                    console.log(`Path data length: ${pathData.length}`);
+                    
+                    // 始终调用 drawShortestPath
+                    drawShortestPath(pathData);
+                }
+            }
+        });
+
+
+        // 添加模式切换按钮事件监听
+        document.getElementById('pedestrianMode').addEventListener('click', () => switchMode('pedestrian'));
+        document.getElementById('vehicleMode').addEventListener('click', () => switchMode('vehicle'));
+    </script>
+
+    <script src="test.js"></script>
+</body>
+</html>

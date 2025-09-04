@@ -1,0 +1,1 @@
+This repository contains assignments, exam questions, and solutions for the 2024 Data Structures (H) course at Fudan University. It is intended as a reference for students to practice and review course materials.
